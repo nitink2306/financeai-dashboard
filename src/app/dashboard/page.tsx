@@ -54,7 +54,7 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
-// Simple Transaction Modal Component
+// Simple Transaction Modal Component with AI
 function AddTransactionModal({
   children,
   onTransactionAdded,
@@ -64,12 +64,59 @@ function AddTransactionModal({
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<any>(null);
+  const [showAiSuggestion, setShowAiSuggestion] = useState(false);
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
     type: "expense",
     date: new Date().toISOString().split("T")[0],
+    category: "",
   });
+
+  // AI categorization when description and amount are filled
+  useEffect(() => {
+    if (
+      formData.description &&
+      formData.amount &&
+      parseFloat(formData.amount) > 0
+    ) {
+      const timeoutId = setTimeout(() => {
+        getAiSuggestion();
+      }, 1000); // Debounce for 1 second
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [formData.description, formData.amount]);
+
+  const getAiSuggestion = async () => {
+    try {
+      const response = await fetch("/api/ai/categorize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description: formData.description,
+          amount: parseFloat(formData.amount),
+          date: formData.date,
+        }),
+      });
+
+      if (response.ok) {
+        const suggestion = await response.json();
+        setAiSuggestion(suggestion);
+        setShowAiSuggestion(true);
+      }
+    } catch (error) {
+      console.error("AI suggestion failed:", error);
+    }
+  };
+
+  const acceptAiSuggestion = () => {
+    if (aiSuggestion) {
+      setFormData((prev) => ({ ...prev, category: aiSuggestion.category }));
+      setShowAiSuggestion(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,8 +141,11 @@ function AddTransactionModal({
           amount: "",
           type: "expense",
           date: new Date().toISOString().split("T")[0],
+          category: "",
         });
         setOpen(false);
+        setAiSuggestion(null);
+        setShowAiSuggestion(false);
 
         if (onTransactionAdded) {
           onTransactionAdded();
@@ -166,6 +216,54 @@ function AddTransactionModal({
             />
           </div>
 
+          {showAiSuggestion && aiSuggestion && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-800">
+                    🤖 AI Suggestion: {aiSuggestion.category}
+                  </p>
+                  <p className="text-xs text-blue-600">
+                    {aiSuggestion.reasoning} (Confidence:{" "}
+                    {Math.round(aiSuggestion.confidence * 100)}%)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={acceptAiSuggestion}
+                  className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                >
+                  Accept
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Category</label>
+            <select
+              value={formData.category}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, category: e.target.value }))
+              }
+              className="w-full p-2 border rounded-md"
+            >
+              <option value="">Select category</option>
+              <option value="groceries">Groceries</option>
+              <option value="dining">Dining Out</option>
+              <option value="transportation">Transportation</option>
+              <option value="utilities">Utilities</option>
+              <option value="entertainment">Entertainment</option>
+              <option value="healthcare">Healthcare</option>
+              <option value="shopping">Shopping</option>
+              <option value="travel">Travel</option>
+              <option value="education">Education</option>
+              <option value="housing">Housing</option>
+              <option value="income">Income</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium mb-1">Date</label>
             <input
@@ -207,6 +305,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [aiInsights, setAiInsights] = useState<any[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
   const [stats, setStats] = useState({
     totalIncome: 0,
     totalExpenses: 0,
@@ -238,11 +338,31 @@ export default function Dashboard() {
         const data = await response.json();
         setTransactions(data);
         calculateStats(data);
+
+        // Fetch AI insights if we have transactions
+        if (data.length > 0) {
+          fetchAiInsights();
+        }
       }
     } catch (error) {
       console.error("Failed to fetch transactions:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAiInsights = async () => {
+    setInsightsLoading(true);
+    try {
+      const response = await fetch("/api/ai/insights?timeframe=month");
+      if (response.ok) {
+        const data = await response.json();
+        setAiInsights(data.insights || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch AI insights:", error);
+    } finally {
+      setInsightsLoading(false);
     }
   };
 
@@ -433,18 +553,66 @@ export default function Dashboard() {
 
           <Card>
             <CardHeader>
-              <CardTitle>AI Insights</CardTitle>
+              <CardTitle>🤖 AI Insights</CardTitle>
               <CardDescription>
                 Personalized financial recommendations
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-8">
-                <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-                <p className="text-gray-500">
-                  Start adding transactions to see AI insights
-                </p>
-              </div>
+              {insightsLoading ? (
+                <div className="text-center py-8">
+                  <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-pulse" />
+                  <p className="text-gray-500">
+                    AI is analyzing your finances...
+                  </p>
+                </div>
+              ) : aiInsights.length === 0 ? (
+                <div className="text-center py-8">
+                  <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4" />
+                  <p className="text-gray-500">
+                    Add more transactions to see AI insights
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {aiInsights.slice(0, 2).map((insight, index) => (
+                    <div
+                      key={index}
+                      className="p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border"
+                    >
+                      <h4 className="font-medium text-sm text-gray-900 mb-1">
+                        {insight.title}
+                      </h4>
+                      <p className="text-xs text-gray-600 mb-2">
+                        {insight.content}
+                      </p>
+                      {insight.recommendations &&
+                        insight.recommendations.length > 0 && (
+                          <div className="space-y-1">
+                            {insight.recommendations
+                              .slice(0, 2)
+                              .map((rec: string, i: number) => (
+                                <p
+                                  key={i}
+                                  className="text-xs text-blue-700 flex items-center"
+                                >
+                                  <span className="w-1 h-1 bg-blue-400 rounded-full mr-2"></span>
+                                  {rec}
+                                </p>
+                              ))}
+                          </div>
+                        )}
+                    </div>
+                  ))}
+                  {aiInsights.length > 2 && (
+                    <div className="text-center pt-2">
+                      <Button variant="outline" size="sm">
+                        View All Insights
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -454,7 +622,7 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle>🚀 Getting Started</CardTitle>
             <CardDescription>
-              Let us set up your financial dashboard
+              Let's set up your financial dashboard
             </CardDescription>
           </CardHeader>
           <CardContent>

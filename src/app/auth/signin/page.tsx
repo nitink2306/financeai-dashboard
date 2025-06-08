@@ -2,6 +2,7 @@
 
 import { signIn, getProviders } from "next-auth/react";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,13 +13,12 @@ import {
 } from "@/components/ui/card";
 import { Brain } from "lucide-react";
 import Link from "next/link";
-import { ClientSafeProvider } from "next-auth/react";
 
 export default function SignIn() {
-  const [providers, setProviders] = useState<Record<
-    string,
-    ClientSafeProvider
-  > | null>(null);
+  const [providers, setProviders] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
 
   useEffect(() => {
     const setupProviders = async () => {
@@ -27,6 +27,19 @@ export default function SignIn() {
     };
     setupProviders();
   }, []);
+
+  const handleSignIn = async (providerId: string) => {
+    setLoading(true);
+    try {
+      await signIn(providerId, {
+        callbackUrl: callbackUrl,
+        redirect: true,
+      });
+    } catch (error) {
+      console.error("Sign in error:", error);
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center px-4">
@@ -43,12 +56,13 @@ export default function SignIn() {
         </CardHeader>
         <CardContent className="space-y-4">
           {providers &&
-            Object.values(providers).map((provider: ClientSafeProvider) => (
+            Object.values(providers).map((provider: any) => (
               <Button
                 key={provider.name}
-                onClick={() => signIn(provider.id)}
+                onClick={() => handleSignIn(provider.id)}
                 className="w-full"
                 size="lg"
+                disabled={loading}
               >
                 <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                   <path
@@ -68,7 +82,7 @@ export default function SignIn() {
                     d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                   />
                 </svg>
-                Continue with Google
+                {loading ? "Signing in..." : "Continue with Google"}
               </Button>
             ))}
 
