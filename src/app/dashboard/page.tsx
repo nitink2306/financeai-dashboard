@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,7 +18,134 @@ import {
   TrendingUp,
   TrendingDown,
   DollarSign,
+  X,
 } from "lucide-react";
+
+// Import the receipt scanner component
+const ReceiptScanner = ({
+  onDataExtracted,
+  onCancel,
+}: {
+  onDataExtracted: (data: any) => void;
+  onCancel: () => void;
+}) => {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [ocrResult, setOcrResult] = useState<any>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      alert("Please select an image file");
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const processReceipt = async () => {
+    if (!selectedFile) return;
+    setProcessing(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("receipt", selectedFile);
+
+      const response = await fetch("/api/ocr/process", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        setOcrResult(result);
+      } else {
+        alert("OCR processing failed: " + result.error);
+      }
+    } catch (error) {
+      console.error("OCR error:", error);
+      alert("Failed to process receipt");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {!selectedFile ? (
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={(e) =>
+              e.target.files?.[0] && handleFileSelect(e.target.files[0])
+            }
+            className="hidden"
+          />
+          <div className="space-y-4">
+            <p className="text-lg font-medium">Upload Receipt Image</p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              Choose File
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="font-medium">Selected: {selectedFile.name}</p>
+          {!ocrResult && (
+            <button
+              onClick={processReceipt}
+              disabled={processing}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+            >
+              {processing ? "Processing..." : "Extract Data"}
+            </button>
+          )}
+
+          {ocrResult && ocrResult.success && (
+            <div className="bg-green-50 border border-green-200 rounded p-4">
+              <h3 className="font-medium text-green-800 mb-2">
+                Extracted Data:
+              </h3>
+              <div className="space-y-2 text-sm">
+                <p>
+                  <strong>Merchant:</strong> {ocrResult.data.merchant}
+                </p>
+                <p>
+                  <strong>Amount:</strong> ${ocrResult.data.amount}
+                </p>
+                <p>
+                  <strong>Date:</strong> {ocrResult.data.date}
+                </p>
+                <p>
+                  <strong>Confidence:</strong>{" "}
+                  {Math.round(ocrResult.data.confidence * 100)}%
+                </p>
+              </div>
+              <button
+                onClick={() => onDataExtracted(ocrResult.data)}
+                className="mt-3 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Use This Data
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={onCancel}
+        className="px-4 py-2 border rounded hover:bg-gray-50"
+      >
+        Back to Manual Entry
+      </button>
+    </div>
+  );
+};
 
 // Define the Transaction interface
 interface Transaction {
@@ -54,7 +181,7 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
-// Simple Transaction Modal Component with AI
+// Simple Transaction Modal Component with AI and OCR
 function AddTransactionModal({
   children,
   onTransactionAdded,
@@ -64,6 +191,7 @@ function AddTransactionModal({
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"manual" | "receipt">("manual");
   const [aiSuggestion, setAiSuggestion] = useState<any>(null);
   const [showAiSuggestion, setShowAiSuggestion] = useState(false);
   const [formData, setFormData] = useState({
@@ -72,6 +200,7 @@ function AddTransactionModal({
     type: "expense",
     date: new Date().toISOString().split("T")[0],
     category: "",
+    merchant: "",
   });
 
   // AI categorization when description and amount are filled
@@ -98,6 +227,7 @@ function AddTransactionModal({
           description: formData.description,
           amount: parseFloat(formData.amount),
           date: formData.date,
+          merchant: formData.merchant,
         }),
       });
 
@@ -116,6 +246,26 @@ function AddTransactionModal({
       setFormData((prev) => ({ ...prev, category: aiSuggestion.category }));
       setShowAiSuggestion(false);
     }
+  };
+
+  // Handle OCR data extraction
+  const handleReceiptData = (receiptData: any) => {
+    console.log("📄 Receipt data received:", receiptData);
+
+    // Populate form with OCR data
+    setFormData((prev) => ({
+      ...prev,
+      description: receiptData.merchant || prev.description,
+      amount: receiptData.amount ? receiptData.amount.toString() : prev.amount,
+      date: receiptData.date || prev.date,
+      merchant: receiptData.merchant || prev.merchant,
+    }));
+
+    // Switch to manual mode for review/editing
+    setMode("manual");
+
+    // Show success message
+    console.log("✅ Form populated with receipt data");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -142,10 +292,12 @@ function AddTransactionModal({
           type: "expense",
           date: new Date().toISOString().split("T")[0],
           category: "",
+          merchant: "",
         });
         setOpen(false);
         setAiSuggestion(null);
         setShowAiSuggestion(false);
+        setMode("manual");
 
         if (onTransactionAdded) {
           onTransactionAdded();
@@ -163,138 +315,215 @@ function AddTransactionModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-        <h2 className="text-xl font-bold mb-4">Add Transaction</h2>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, type: e.target.value }))
-              }
-              className="w-full p-2 border rounded-md"
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold">Add Transaction</h2>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-gray-400 hover:text-gray-600"
             >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
+              <X className="h-6 w-6" />
+            </button>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Amount</label>
-            <input
-              type="number"
-              step="0.01"
-              placeholder="0.00"
-              value={formData.amount}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, amount: e.target.value }))
-              }
-              className="w-full p-2 border rounded-md"
-              required
+          {/* Mode Tabs */}
+          <div className="flex space-x-1 mb-6 bg-gray-100 p-1 rounded-lg">
+            <button
+              onClick={() => setMode("manual")}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                mode === "manual"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              Manual Entry
+            </button>
+            <button
+              onClick={() => setMode("receipt")}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                mode === "receipt"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              📸 Receipt Scan
+            </button>
+          </div>
+
+          {/* Receipt Scanner Mode */}
+          {mode === "receipt" && (
+            <ReceiptScanner
+              onDataExtracted={handleReceiptData}
+              onCancel={() => setMode("manual")}
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Description
-            </label>
-            <input
-              type="text"
-              placeholder="What was this transaction for?"
-              value={formData.description}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  description: e.target.value,
-                }))
-              }
-              className="w-full p-2 border rounded-md"
-              required
-            />
-          </div>
-
-          {showAiSuggestion && aiSuggestion && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-blue-800">
-                    🤖 AI Suggestion: {aiSuggestion.category}
-                  </p>
-                  <p className="text-xs text-blue-600">
-                    {aiSuggestion.reasoning} (Confidence:{" "}
-                    {Math.round(aiSuggestion.confidence * 100)}%)
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={acceptAiSuggestion}
-                  className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                >
-                  Accept
-                </button>
-              </div>
-            </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Category</label>
-            <select
-              value={formData.category}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, category: e.target.value }))
-              }
-              className="w-full p-2 border rounded-md"
-            >
-              <option value="">Select category</option>
-              <option value="groceries">Groceries</option>
-              <option value="dining">Dining Out</option>
-              <option value="transportation">Transportation</option>
-              <option value="utilities">Utilities</option>
-              <option value="entertainment">Entertainment</option>
-              <option value="healthcare">Healthcare</option>
-              <option value="shopping">Shopping</option>
-              <option value="travel">Travel</option>
-              <option value="education">Education</option>
-              <option value="housing">Housing</option>
-              <option value="income">Income</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
+          {/* Manual Entry Mode */}
+          {mode === "manual" && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Type</label>
+                  <select
+                    value={formData.type}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, type: e.target.value }))
+                    }
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                  </select>
+                </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Date</label>
-            <input
-              type="date"
-              value={formData.date}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, date: e.target.value }))
-              }
-              className="w-full p-2 border rounded-md"
-              required
-            />
-          </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Amount
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={formData.amount}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        amount: e.target.value,
+                      }))
+                    }
+                    className="w-full p-2 border rounded-md"
+                    required
+                  />
+                </div>
+              </div>
 
-          <div className="flex justify-end space-x-2 pt-4">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="px-4 py-2 border rounded-md hover:bg-gray-50"
-              disabled={loading}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {loading ? "Adding..." : "Add Transaction"}
-            </button>
-          </div>
-        </form>
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  placeholder="What was this transaction for?"
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded-md"
+                  required
+                />
+              </div>
+
+              {showAiSuggestion && aiSuggestion && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-blue-800">
+                        🤖 AI Suggestion: {aiSuggestion.category}
+                      </p>
+                      <p className="text-xs text-blue-600">
+                        {aiSuggestion.reasoning} (Confidence:{" "}
+                        {Math.round(aiSuggestion.confidence * 100)}%)
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={acceptAiSuggestion}
+                      className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                    >
+                      Accept
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Category
+                  </label>
+                  <select
+                    value={formData.category}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        category: e.target.value,
+                      }))
+                    }
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="">Select category</option>
+                    <option value="groceries">Groceries</option>
+                    <option value="dining">Dining Out</option>
+                    <option value="transportation">Transportation</option>
+                    <option value="utilities">Utilities</option>
+                    <option value="entertainment">Entertainment</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="shopping">Shopping</option>
+                    <option value="travel">Travel</option>
+                    <option value="education">Education</option>
+                    <option value="housing">Housing</option>
+                    <option value="income">Income</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={formData.date}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, date: e.target.value }))
+                    }
+                    className="w-full p-2 border rounded-md"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Merchant (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Where did you make this transaction?"
+                  value={formData.merchant}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      merchant: e.target.value,
+                    }))
+                  }
+                  className="w-full p-2 border rounded-md"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="px-4 py-2 border rounded-md hover:bg-gray-50"
+                  disabled={loading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? "Adding..." : "Add Transaction"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
