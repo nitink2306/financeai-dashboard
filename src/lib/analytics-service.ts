@@ -196,17 +196,29 @@ function generateCategoryBreakdown(transactions: any[]): CategoryBreakdown[] {
   transactions
     .filter((t) => t.type === "EXPENSE")
     .forEach((transaction) => {
-      const category = transaction.category?.name || "other";
+      // Handle both string and object category
+      let categoryName = "other";
 
-      if (!categoryData.has(category)) {
-        categoryData.set(category, {
+      if (transaction.category) {
+        if (typeof transaction.category === "string") {
+          categoryName = transaction.category;
+        } else if (transaction.category.name) {
+          categoryName = transaction.category.name;
+        }
+      }
+
+      // Normalize category name
+      categoryName = categoryName.toLowerCase().trim();
+
+      if (!categoryData.has(categoryName)) {
+        categoryData.set(categoryName, {
           amount: 0,
           transactions: 0,
-          color: categoryColors[category] || "#6b7280",
+          color: categoryColors[categoryName] || "#6b7280",
         });
       }
 
-      const data = categoryData.get(category)!;
+      const data = categoryData.get(categoryName)!;
       data.amount += transaction.amount;
       data.transactions++;
     });
@@ -263,10 +275,107 @@ function generateTrends(timeSeries: TimeSeriesData[]): TrendAnalysis[] {
     });
   }
 
+  // Calculate income trend
+  const recentIncome = timeSeries
+    .slice(-7)
+    .reduce((sum, data) => sum + data.income, 0);
+  const previousIncome = timeSeries
+    .slice(-14, -7)
+    .reduce((sum, data) => sum + data.income, 0);
+
+  if (previousIncome > 0) {
+    const incomeGrowth =
+      ((recentIncome - previousIncome) / previousIncome) * 100;
+    trends.push({
+      period: "Income Trend",
+      growth: incomeGrowth,
+      trend: incomeGrowth > 5 ? "up" : incomeGrowth < -5 ? "down" : "stable",
+      significance:
+        Math.abs(incomeGrowth) > 20
+          ? "high"
+          : Math.abs(incomeGrowth) > 10
+          ? "medium"
+          : "low",
+    });
+  }
+
   return trends;
 }
 
-// Generate insights from transaction data
+// Calculate summary statistics
+function calculateSummary(
+  transactions: any[],
+  period: string
+): AnalyticsData["summary"] {
+  const income = transactions
+    .filter((t) => t.type === "INCOME")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const expenses = transactions
+    .filter((t) => t.type === "EXPENSE")
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Find top spending category
+  const categoryTotals = new Map<string, number>();
+  transactions
+    .filter((t) => t.type === "EXPENSE" && t.category)
+    .forEach((t) => {
+      // Handle both string and object category
+      let categoryName = "other";
+
+      if (typeof t.category === "string") {
+        categoryName = t.category;
+      } else if (t.category.name) {
+        categoryName = t.category.name;
+      }
+
+      categoryName = categoryName.toLowerCase().trim();
+      categoryTotals.set(
+        categoryName,
+        (categoryTotals.get(categoryName) || 0) + t.amount
+      );
+    });
+
+  const topCategoryEntry = Array.from(categoryTotals.entries()).sort(
+    (a, b) => b[1] - a[1]
+  )[0];
+
+  const topCategory = topCategoryEntry
+    ? topCategoryEntry[0].charAt(0).toUpperCase() + topCategoryEntry[0].slice(1)
+    : "None";
+
+  // Calculate average daily spending
+  const days = getDaysInPeriod(period);
+  const avgDailySpending = days > 0 ? expenses / days : 0;
+
+  return {
+    totalIncome: income,
+    totalExpenses: expenses,
+    netIncome: income - expenses,
+    avgDailySpending,
+    topCategory,
+    transactionCount: transactions.length,
+    period,
+  };
+}
+
+// Get number of days in period
+function getDaysInPeriod(period: string): number {
+  switch (period) {
+    case "week":
+      return 7;
+    case "month":
+      return 30;
+    case "quarter":
+      return 90;
+    case "year":
+      return 365;
+    default:
+      return 30;
+  }
+}
+
+// Generate actionable insights
 function generateInsights(
   transactions: any[],
   categoryBreakdown: CategoryBreakdown[],
@@ -274,71 +383,87 @@ function generateInsights(
 ): string[] {
   const insights: string[] = [];
 
-  // Spending pattern insights
-  const topCategory = categoryBreakdown[0];
-  if (topCategory) {
+  // High spending insights
+  if (categoryBreakdown.length > 0) {
+    const topCategory = categoryBreakdown[0];
+    if (topCategory.percentage > 40) {
+      insights.push(
+        `${topCategory.category} accounts for ${topCategory.percentage.toFixed(
+          1
+        )}% of your spending. Consider reviewing this category for savings opportunities.`
+      );
+    }
+  }
+
+  // Trend insights
+  trends.forEach((trend) => {
+    if (trend.significance === "high") {
+      if (trend.trend === "up" && trend.period.includes("Recent")) {
+        insights.push(
+          `Your spending has increased by ${trend.growth.toFixed(
+            1
+          )}% recently. Monitor your expenses closely.`
+        );
+      } else if (trend.trend === "down" && trend.period.includes("Recent")) {
+        insights.push(
+          `Great job! Your spending decreased by ${Math.abs(
+            trend.growth
+          ).toFixed(1)}% recently.`
+        );
+      }
+    }
+  });
+
+  // Transaction frequency insights
+  const avgTransactionSize =
+    transactions.length > 0
+      ? transactions.reduce((sum, t) => sum + Math.abs(t.amount), 0) /
+        transactions.length
+      : 0;
+
+  if (avgTransactionSize > 100) {
     insights.push(
-      `Your highest spending category is ${
-        topCategory.category
-      } at ${topCategory.percentage.toFixed(1)}% of total expenses`
+      `Your average transaction is $${avgTransactionSize.toFixed(
+        2
+      )}. Consider tracking large purchases more carefully.`
     );
   }
 
-  // Trend-based insights
-  const spendingTrend = trends.find(
-    (t) => t.period === "Recent vs Previous Week"
-  );
-  if (spendingTrend) {
-    if (spendingTrend.trend === "up") {
-      insights.push(
-        `Your spending has increased by ${Math.abs(
-          spendingTrend.growth
-        ).toFixed(1)}% compared to last week`
-      );
-    } else if (spendingTrend.trend === "down") {
-      insights.push(
-        `Your spending has decreased by ${Math.abs(
-          spendingTrend.growth
-        ).toFixed(1)}% compared to last week`
-      );
-    }
+  // Default insight if none generated
+  if (insights.length === 0) {
+    insights.push(
+      "Keep tracking your expenses to get personalized insights and recommendations."
+    );
   }
 
   return insights;
 }
 
-// Calculate summary statistics
-function calculateSummary(transactions: any[], period: string) {
-  const totalIncome = transactions
-    .filter((t) => t.type === "INCOME")
-    .reduce((sum, t) => sum + t.amount, 0);
+// Export data functions
+export function exportToCsv(data: AnalyticsData): string {
+  const csvRows = [
+    ["Date", "Income", "Expenses", "Net", "Transactions"],
+    ...data.timeSeries.map((row) => [
+      row.date,
+      row.income.toFixed(2),
+      row.expenses.toFixed(2),
+      row.net.toFixed(2),
+      row.transactions.toString(),
+    ]),
+  ];
 
-  const totalExpenses = transactions
-    .filter((t) => t.type === "EXPENSE")
-    .reduce((sum, t) => sum + t.amount, 0);
+  return csvRows.map((row) => row.join(",")).join("\n");
+}
 
-  const daysInPeriod =
-    period === "week"
-      ? 7
-      : period === "month"
-      ? 30
-      : period === "quarter"
-      ? 90
-      : 365;
+// Format currency for display
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
 
-  return {
-    totalIncome,
-    totalExpenses,
-    netIncome: totalIncome - totalExpenses,
-    avgDailySpending: totalExpenses / daysInPeriod,
-    topCategory: transactions
-      .filter((t) => t.type === "EXPENSE")
-      .reduce((acc, t) => {
-        const category = t.category?.name || "other";
-        acc[category] = (acc[category] || 0) + t.amount;
-        return acc;
-      }, {} as Record<string, number>),
-    transactionCount: transactions.length,
-    period,
-  };
+// Format percentage for display
+export function formatPercentage(value: number): string {
+  return `${value.toFixed(1)}%`;
 }

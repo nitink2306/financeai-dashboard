@@ -19,6 +19,7 @@ import {
   TrendingDown,
   DollarSign,
   X,
+  BarChart3,
 } from "lucide-react";
 
 // Import the receipt scanner component
@@ -652,6 +653,15 @@ export default function Dashboard() {
               <User className="h-5 w-5 text-gray-600" />
               <span className="text-sm text-gray-600">{session.user.name}</span>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push("/analytics")}
+              className="flex items-center space-x-1"
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span>Analytics</span>
+            </Button>
             <Button
               variant="outline"
               size="sm"
