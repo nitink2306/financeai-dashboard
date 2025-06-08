@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,11 +11,208 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Brain, User, LogOut } from "lucide-react";
+import {
+  Brain,
+  User,
+  LogOut,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+} from "lucide-react";
+
+// Define the Transaction interface
+interface Transaction {
+  id: string;
+  userId: string;
+  amount: number;
+  description: string;
+  date: string;
+  type: "INCOME" | "EXPENSE";
+  categoryId?: string;
+  merchant?: string;
+  category?: {
+    id: string;
+    name: string;
+    color: string;
+    icon: string;
+  };
+}
+
+// Utility functions
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
+
+function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+// Simple Transaction Modal Component
+function AddTransactionModal({
+  children,
+  onTransactionAdded,
+}: {
+  children: React.ReactNode;
+  onTransactionAdded?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({
+    description: "",
+    amount: "",
+    type: "expense",
+    date: new Date().toISOString().split("T")[0],
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const response = await fetch("/api/transactions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...formData,
+          amount: parseFloat(formData.amount),
+          type: formData.type.toUpperCase(),
+        }),
+      });
+
+      if (response.ok) {
+        setFormData({
+          description: "",
+          amount: "",
+          type: "expense",
+          date: new Date().toISOString().split("T")[0],
+        });
+        setOpen(false);
+
+        if (onTransactionAdded) {
+          onTransactionAdded();
+        }
+      }
+    } catch (error) {
+      console.error("Failed to add transaction:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) {
+    return <div onClick={() => setOpen(true)}>{children}</div>;
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <h2 className="text-xl font-bold mb-4">Add Transaction</h2>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Type</label>
+            <select
+              value={formData.type}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, type: e.target.value }))
+              }
+              className="w-full p-2 border rounded-md"
+            >
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Amount</label>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="0.00"
+              value={formData.amount}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, amount: e.target.value }))
+              }
+              className="w-full p-2 border rounded-md"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Description
+            </label>
+            <input
+              type="text"
+              placeholder="What was this transaction for?"
+              value={formData.description}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  description: e.target.value,
+                }))
+              }
+              className="w-full p-2 border rounded-md"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Date</label>
+            <input
+              type="date"
+              value={formData.date}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, date: e.target.value }))
+              }
+              className="w-full p-2 border rounded-md"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end space-x-2 pt-4">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="px-4 py-2 border rounded-md hover:bg-gray-50"
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? "Adding..." : "Add Transaction"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalIncome: 0,
+    totalExpenses: 0,
+    netIncome: 0,
+    transactionCount: 0,
+  });
 
   // Only redirect if we're sure there's no session (not loading)
   useEffect(() => {
@@ -26,6 +223,45 @@ export default function Dashboard() {
       router.push("/auth/signin");
     }
   }, [status, router]);
+
+  // Fetch transactions when user is authenticated
+  useEffect(() => {
+    if (status === "authenticated") {
+      fetchTransactions();
+    }
+  }, [status]);
+
+  const fetchTransactions = async () => {
+    try {
+      const response = await fetch("/api/transactions");
+      if (response.ok) {
+        const data = await response.json();
+        setTransactions(data);
+        calculateStats(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch transactions:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculateStats = (transactions: Transaction[]) => {
+    const income = transactions
+      .filter((t) => t.type === "INCOME")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const expenses = transactions
+      .filter((t) => t.type === "EXPENSE")
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    setStats({
+      totalIncome: income,
+      totalExpenses: expenses,
+      netIncome: income - expenses,
+      transactionCount: transactions.length,
+    });
+  };
 
   // Show loading while checking authentication
   if (status === "loading") {
@@ -96,15 +332,31 @@ export default function Dashboard() {
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle>Quick Stats</CardTitle>
-              <CardDescription>
-                Your financial overview at a glance
-              </CardDescription>
+              <CardTitle className="flex items-center justify-between">
+                <span>Total Balance</span>
+                <DollarSign className="h-5 w-5 text-green-600" />
+              </CardTitle>
+              <CardDescription>Your current financial position</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-8">
-                <p className="text-2xl font-bold text-green-600">$0.00</p>
-                <p className="text-sm text-gray-500">Total Balance</p>
+              <div className="text-center py-4">
+                <p
+                  className={`text-3xl font-bold ${
+                    stats.netIncome >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {formatCurrency(stats.netIncome)}
+                </p>
+                <div className="flex justify-between text-sm text-gray-500 mt-2">
+                  <span className="flex items-center">
+                    <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
+                    Income: {formatCurrency(stats.totalIncome)}
+                  </span>
+                  <span className="flex items-center">
+                    <TrendingDown className="h-4 w-4 text-red-500 mr-1" />
+                    Expenses: {formatCurrency(stats.totalExpenses)}
+                  </span>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -112,15 +364,70 @@ export default function Dashboard() {
           <Card>
             <CardHeader>
               <CardTitle>Recent Transactions</CardTitle>
-              <CardDescription>Your latest financial activity</CardDescription>
+              <CardDescription>
+                {loading
+                  ? "Loading..."
+                  : `${stats.transactionCount} total transactions`}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-center py-8">
-                <p className="text-gray-500">No transactions yet</p>
-                <Button className="mt-4" size="sm">
-                  Add Transaction
-                </Button>
-              </div>
+              {loading ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Loading transactions...</p>
+                </div>
+              ) : transactions.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No transactions yet</p>
+                  <AddTransactionModal onTransactionAdded={fetchTransactions}>
+                    <Button className="mt-4" size="sm">
+                      Add Transaction
+                    </Button>
+                  </AddTransactionModal>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {transactions.slice(0, 3).map((transaction) => (
+                    <div
+                      key={transaction.id}
+                      className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    >
+                      <div>
+                        <p className="font-medium text-sm">
+                          {transaction.description}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {formatDate(new Date(transaction.date))}
+                          {transaction.merchant && ` • ${transaction.merchant}`}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p
+                          className={`font-medium ${
+                            transaction.type === "INCOME"
+                              ? "text-green-600"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {transaction.type === "INCOME" ? "+" : "-"}
+                          {formatCurrency(transaction.amount)}
+                        </p>
+                        {transaction.category && (
+                          <p className="text-xs text-gray-500 capitalize">
+                            {transaction.category.name}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {transactions.length > 3 && (
+                    <div className="text-center pt-2">
+                      <Button variant="outline" size="sm">
+                        View All Transactions
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -147,7 +454,7 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle>🚀 Getting Started</CardTitle>
             <CardDescription>
-              Lets set up your financial dashboard
+              Let us set up your financial dashboard
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -160,7 +467,9 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-600 mb-4">
                   Start by adding a transaction or uploading a receipt
                 </p>
-                <Button size="sm">Add Transaction</Button>
+                <AddTransactionModal onTransactionAdded={fetchTransactions}>
+                  <Button size="sm">Add Transaction</Button>
+                </AddTransactionModal>
               </div>
               <div className="text-center p-4">
                 <div className="text-2xl mb-2">2️⃣</div>
