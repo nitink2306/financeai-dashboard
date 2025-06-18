@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
@@ -40,7 +39,7 @@ export default function Home() {
     }
   };
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen bg-black">
       {/* Header */}
       <header className="border-b border-purple-800/20 bg-black/20 backdrop-blur-xl">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -60,12 +59,12 @@ export default function Home() {
             >
               Features
             </Link>
-            <Link
+            {/* <Link
               href="#demo"
               className="text-slate-300 hover:text-emerald-400 transition-colors"
             >
               Demo
-            </Link>
+            </Link> */}
             <Button
               variant="outline"
               size="sm"
@@ -74,13 +73,15 @@ export default function Home() {
             >
               {session ? "Dashboard" : "Sign In"}
             </Button>
-            <Button
-              size="sm"
-              onClick={handleGetStarted}
-              className="bg-gradient-to-r from-emerald-500 to-purple-600 hover:from-emerald-600 hover:to-purple-700 text-white border-0"
-            >
-              {session ? "Dashboard" : "Get Started"}
-            </Button>
+            {!session && (
+              <Button
+                size="sm"
+                onClick={handleGetStarted}
+                className="bg-gradient-to-r from-emerald-500 to-purple-600 hover:from-emerald-600 hover:to-purple-700 text-white border-0"
+              >
+                "Get Started"
+              </Button>
+            )}
           </nav>
         </div>
       </header>
