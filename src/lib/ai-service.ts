@@ -1,8 +1,11 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Only create OpenAI instance if API key is available
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  : null;
 
 export interface CategorySuggestion {
   category: string;
@@ -39,6 +42,11 @@ export async function categorizeTransaction(
   transaction: TransactionData
 ): Promise<CategorySuggestion> {
   try {
+    // If OpenAI is not available, use fallback categorization
+    if (!openai) {
+      return fallbackCategorization(transaction);
+    }
+
     const prompt = `
 You are a financial expert analyzing transactions. Categorize this transaction with high accuracy:
 
@@ -274,6 +282,11 @@ export async function generateFinancialInsights(
   timeframe: "week" | "month" | "year" = "month"
 ): Promise<FinancialInsight[]> {
   try {
+    // If OpenAI is not available, use fallback insights
+    if (!openai) {
+      return generateFallbackInsights(transactions);
+    }
+
     // Prepare transaction summary for AI
     const totalSpent = transactions
       .filter((t) => t.type === "EXPENSE")
