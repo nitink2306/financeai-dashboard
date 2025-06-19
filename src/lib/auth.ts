@@ -9,6 +9,13 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: "select_account",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
     }),
   ],
   pages: {
@@ -23,47 +30,48 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
-      // Get the production URL from environment variables
+      // Ensure baseUrl is always the production URL in production
       const productionUrl = process.env.NEXTAUTH_URL;
-
-      // Always use NEXTAUTH_URL in production, fallback to baseUrl in development
       const finalBaseUrl = productionUrl || baseUrl;
 
-      // Security: Only allow redirects to trusted domains
-      const trustedHosts = [
-        new URL(finalBaseUrl).host,
-        process.env.VERCEL_URL,
-        "financeai-dashboard.vercel.app",
-      ].filter(Boolean);
+      // Log the redirect attempt for debugging
+      console.log("NextAuth Redirect:", {
+        url,
+        baseUrl,
+        finalBaseUrl,
+        productionUrl,
+      });
 
-      try {
-        const urlHost = new URL(
-          url.startsWith("http") ? url : `${finalBaseUrl}${url}`
-        ).host;
-        if (!trustedHosts.includes(urlHost)) {
-          return `${finalBaseUrl}/dashboard`;
-        }
-      } catch {
-        return `${finalBaseUrl}/dashboard`;
-      }
-
-      // Handle callback URLs
+      // Always redirect to dashboard after successful auth
       if (url.includes("/api/auth/callback")) {
         return `${finalBaseUrl}/dashboard`;
       }
 
-      // If the url is relative, make it absolute
+      // For relative URLs, make them absolute
       if (url.startsWith("/")) {
         return `${finalBaseUrl}${url}`;
       }
 
-      // If url is already absolute and trusted, use it
-      return url.startsWith(finalBaseUrl) ? url : `${finalBaseUrl}/dashboard`;
+      // For absolute URLs, ensure they're on our domain
+      try {
+        const urlObj = new URL(url);
+        const baseUrlObj = new URL(finalBaseUrl);
+
+        if (urlObj.host === baseUrlObj.host) {
+          return url;
+        }
+      } catch (e) {
+        console.error("URL parsing error:", e);
+      }
+
+      // Default fallback
+      return `${finalBaseUrl}/dashboard`;
     },
   },
   session: {
     strategy: "database",
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
+  debug: true, // Enable debug logs temporarily
 };

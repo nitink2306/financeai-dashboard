@@ -86,23 +86,27 @@ function SignInContent() {
     setError(null);
 
     try {
-      const validCallbackUrl = getValidCallbackUrl(callbackUrl);
-      console.log("Signing in with callback URL:", validCallbackUrl);
+      // Always use the current URL's origin for the callback
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "";
+      const callbackUrl = `${origin}/dashboard`;
 
-      const result = await signIn(providerId, {
-        callbackUrl: validCallbackUrl,
-        redirect: false, // Handle redirect manually
+      console.log("Starting sign in with:", {
+        providerId,
+        callbackUrl,
+        origin,
       });
 
+      const result = await signIn(providerId, {
+        callbackUrl,
+        redirect: true, // Let NextAuth handle the redirect
+      });
+
+      // This code will only run if redirect: false
       if (result?.error) {
-        setError(`Sign in failed: ${result.error}`);
+        console.error("Sign in error:", result.error);
+        setError(`Authentication failed: ${result.error}`);
         setLoading(false);
-      } else if (result?.url) {
-        // Redirect to the returned URL
-        window.location.href = result.url;
-      } else {
-        // Fallback redirect
-        router.push(validCallbackUrl);
       }
     } catch (error) {
       console.error("Sign in error:", error);
