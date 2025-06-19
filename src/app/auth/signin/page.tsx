@@ -23,9 +23,24 @@ function SignInContent() {
 
   // Fix the callback URL to use current origin
   const callbackUrl =
-    typeof window !== "undefined"
+    searchParams.get("callbackUrl") ||
+    (typeof window !== "undefined"
       ? `${window.location.origin}/dashboard`
-      : "/dashboard";
+      : "/dashboard");
+
+  // Ensure callback URL is not localhost in production
+  const getValidCallbackUrl = (url: string) => {
+    const isProduction =
+      process.env.NEXT_PUBLIC_VERCEL_URL || process.env.NEXT_PUBLIC_SITE_URL;
+    if (isProduction && url.includes("localhost")) {
+      // Replace localhost URL with production URL
+      const productionUrl =
+        process.env.NEXT_PUBLIC_SITE_URL ||
+        `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`;
+      return `${productionUrl}/dashboard`;
+    }
+    return url;
+  };
 
   const errorParam = searchParams.get("error");
 
@@ -71,10 +86,11 @@ function SignInContent() {
     setError(null);
 
     try {
-      console.log("Signing in with callback URL:", callbackUrl);
+      const validCallbackUrl = getValidCallbackUrl(callbackUrl);
+      console.log("Signing in with callback URL:", validCallbackUrl);
 
       const result = await signIn(providerId, {
-        callbackUrl: callbackUrl,
+        callbackUrl: validCallbackUrl,
         redirect: false, // Handle redirect manually
       });
 
@@ -86,7 +102,7 @@ function SignInContent() {
         window.location.href = result.url;
       } else {
         // Fallback redirect
-        router.push(callbackUrl);
+        router.push(validCallbackUrl);
       }
     } catch (error) {
       console.error("Sign in error:", error);

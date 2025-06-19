@@ -22,39 +22,38 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
     async redirect({ url, baseUrl }) {
-      console.log("Redirect callback:", { url, baseUrl });
+      // Get the production URL from environment variables
+      const productionUrl =
+        process.env.NEXTAUTH_URL || `https://${process.env.VERCEL_URL}`;
 
-      // Force production base URL when on Vercel
-      const isProduction = process.env.VERCEL_URL || process.env.NEXTAUTH_URL;
-      const productionBaseUrl =
-        process.env.NEXTAUTH_URL ||
-        `https://${process.env.VERCEL_URL}` ||
-        baseUrl;
+      // Determine if we're in production
+      const isProduction =
+        !!process.env.VERCEL_URL || !!process.env.NEXTAUTH_URL;
 
-      // Always use production URL when deployed
-      const finalBaseUrl = isProduction ? productionBaseUrl : baseUrl;
+      // Use production URL if available, otherwise fall back to baseUrl
+      const finalBaseUrl = isProduction ? productionUrl : baseUrl;
 
-      // If URL contains localhost but we're in production, redirect to production dashboard
-      if (url.includes("localhost") && isProduction) {
+      // Ensure URL is absolute
+      const absoluteUrl = url.startsWith("http")
+        ? url
+        : `${finalBaseUrl}${url.startsWith("/") ? url : `/${url}`}`;
+
+      // For callback URLs, always redirect to dashboard
+      if (url.includes("/api/auth/callback")) {
         return `${finalBaseUrl}/dashboard`;
       }
 
-      // If the URL is already a full URL starting with our base, use it
-      if (url.startsWith(finalBaseUrl)) {
-        return url;
-      }
-
-      // If the URL is a relative path, prepend finalBaseUrl
+      // If URL is relative to base URL, make it absolute
       if (url.startsWith("/")) {
         return `${finalBaseUrl}${url}`;
       }
 
-      // For OAuth callbacks, redirect to dashboard
-      if (url.includes("callback")) {
-        return `${finalBaseUrl}/dashboard`;
+      // If URL is already absolute and matches our domain, use it
+      if (absoluteUrl.startsWith(finalBaseUrl)) {
+        return absoluteUrl;
       }
 
-      // Default redirect to dashboard
+      // Default fallback to dashboard
       return `${finalBaseUrl}/dashboard`;
     },
   },
