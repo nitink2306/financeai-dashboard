@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -18,167 +18,24 @@ import {
   TrendingUp,
   TrendingDown,
   DollarSign,
-  X,
   BarChart3,
+  AlertCircle,
+  RefreshCw,
+  Loader2,
+  CheckCircle,
+  Plus,
 } from "lucide-react";
 
-type ReceiptData = {
-  merchant?: string;
-  amount?: number;
-  date?: string;
-  confidence?: number;
-};
-
-type AiInsight = {
-  title: string;
-  content: string;
-  recommendations?: string[];
-};
-
-// Import the receipt scanner component
-const ReceiptScanner = ({
-  onDataExtracted,
-  onCancel,
-}: {
-  onDataExtracted: (data: ReceiptData) => void;
-  onCancel: () => void;
-}) => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [processing, setProcessing] = useState(false);
-  const [ocrResult, setOcrResult] = useState<{
-    success: boolean;
-    data: ReceiptData;
-  } | null>(null);
-  // const [dragActive, setDragActive] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileSelect = (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      alert("Please select an image file");
-      return;
-    }
-    setSelectedFile(file);
-  };
-
-  const processReceipt = async () => {
-    if (!selectedFile) return;
-    setProcessing(true);
-
-    try {
-      const formData = new FormData();
-      formData.append("receipt", selectedFile);
-
-      const response = await fetch("/api/ocr/process", {
-        method: "POST",
-        body: formData,
-      });
-
-      const result = await response.json();
-      if (result.success) {
-        setOcrResult(result);
-      } else {
-        alert("OCR processing failed: " + result.error);
-      }
-    } catch (error) {
-      console.error("OCR error:", error);
-      alert("Failed to process receipt");
-    } finally {
-      setProcessing(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      {!selectedFile ? (
-        <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={(e) =>
-              e.target.files?.[0] && handleFileSelect(e.target.files[0])
-            }
-            className="hidden"
-          />
-          <div className="space-y-4">
-            <p className="text-lg font-medium">Upload Receipt Image</p>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Choose File
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <p className="font-medium">Selected: {selectedFile.name}</p>
-          {!ocrResult && (
-            <button
-              onClick={processReceipt}
-              disabled={processing}
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
-            >
-              {processing ? "Processing..." : "Extract Data"}
-            </button>
-          )}
-
-          {ocrResult && ocrResult.success && (
-            <div className="bg-green-50 border border-green-200 rounded p-4">
-              <h3 className="font-medium text-green-800 mb-2">
-                Extracted Data:
-              </h3>
-              <div className="space-y-2 text-sm">
-                <p>
-                  <strong>Merchant:</strong> {ocrResult.data.merchant}
-                </p>
-                <p>
-                  <strong>Amount:</strong> ${ocrResult.data.amount}
-                </p>
-                <p>
-                  <strong>Date:</strong> {ocrResult.data.date}
-                </p>
-                <p>
-                  <strong>Confidence:</strong>{" "}
-                  {Math.round((ocrResult.data.confidence || 0) * 100)}%
-                </p>
-              </div>
-              <button
-                onClick={() => onDataExtracted(ocrResult.data)}
-                className="mt-3 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Use This Data
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      <button
-        onClick={onCancel}
-        className="px-4 py-2 border rounded hover:bg-gray-50"
-      >
-        Back to Manual Entry
-      </button>
-    </div>
-  );
-};
-
-// Define the Transaction interface
+// Simple transaction interface
 interface Transaction {
   id: string;
-  userId: string;
   amount: number;
   description: string;
   date: string;
   type: "INCOME" | "EXPENSE";
-  categoryId?: string;
   merchant?: string;
   category?: {
-    id: string;
     name: string;
-    color: string;
-    icon: string;
   };
 }
 
@@ -198,7 +55,7 @@ function formatDate(date: Date): string {
   }).format(date);
 }
 
-// Simple Transaction Modal Component with AI and OCR
+// Simple Add Transaction Modal Component
 function AddTransactionModal({
   children,
   onTransactionAdded,
@@ -208,13 +65,6 @@ function AddTransactionModal({
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"manual" | "receipt">("manual");
-  const [aiSuggestion, setAiSuggestion] = useState<{
-    category: string;
-    reasoning: string;
-    confidence: number;
-  } | null>(null);
-  const [showAiSuggestion, setShowAiSuggestion] = useState(false);
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
@@ -223,71 +73,6 @@ function AddTransactionModal({
     category: "",
     merchant: "",
   });
-
-  // AI categorization when description and amount are filled
-  useEffect(() => {
-    if (
-      formData.description &&
-      formData.amount &&
-      parseFloat(formData.amount) > 0
-    ) {
-      const timeoutId = setTimeout(() => {
-        getAiSuggestion();
-      }, 1000); // Debounce for 1 second
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [formData.description, formData.amount]);
-
-  const getAiSuggestion = async () => {
-    try {
-      const response = await fetch("/api/ai/categorize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description: formData.description,
-          amount: parseFloat(formData.amount),
-          date: formData.date,
-          merchant: formData.merchant,
-        }),
-      });
-
-      if (response.ok) {
-        const suggestion = await response.json();
-        setAiSuggestion(suggestion);
-        setShowAiSuggestion(true);
-      }
-    } catch (error) {
-      console.error("AI suggestion failed:", error);
-    }
-  };
-
-  const acceptAiSuggestion = () => {
-    if (aiSuggestion) {
-      setFormData((prev) => ({ ...prev, category: aiSuggestion.category }));
-      setShowAiSuggestion(false);
-    }
-  };
-
-  // Handle OCR data extraction
-  const handleReceiptData = (receiptData: ReceiptData) => {
-    console.log("📄 Receipt data received:", receiptData);
-
-    // Populate form with OCR data
-    setFormData((prev) => ({
-      ...prev,
-      description: receiptData.merchant || prev.description,
-      amount: receiptData.amount ? receiptData.amount.toString() : prev.amount,
-      date: receiptData.date || prev.date,
-      merchant: receiptData.merchant || prev.merchant,
-    }));
-
-    // Switch to manual mode for review/editing
-    setMode("manual");
-
-    // Show success message
-    console.log("✅ Form populated with receipt data");
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -316,9 +101,6 @@ function AddTransactionModal({
           merchant: "",
         });
         setOpen(false);
-        setAiSuggestion(null);
-        setShowAiSuggestion(false);
-        setMode("manual");
 
         if (onTransactionAdded) {
           onTransactionAdded();
@@ -337,7 +119,7 @@ function AddTransactionModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold">Add Transaction</h2>
@@ -345,205 +127,139 @@ function AddTransactionModal({
               onClick={() => setOpen(false)}
               className="text-gray-400 hover:text-gray-600"
             >
-              <X className="h-6 w-6" />
+              ✕
             </button>
           </div>
 
-          {/* Mode Tabs */}
-          <div className="flex space-x-1 mb-6 bg-gray-100 p-1 rounded-lg">
-            <button
-              onClick={() => setMode("manual")}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                mode === "manual"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              Manual Entry
-            </button>
-            <button
-              onClick={() => setMode("receipt")}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                mode === "receipt"
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              📸 Receipt Scan
-            </button>
-          </div>
-
-          {/* Receipt Scanner Mode */}
-          {mode === "receipt" && (
-            <ReceiptScanner
-              onDataExtracted={handleReceiptData}
-              onCancel={() => setMode("manual")}
-            />
-          )}
-
-          {/* Manual Entry Mode */}
-          {mode === "manual" && (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Type</label>
-                  <select
-                    value={formData.type}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, type: e.target.value }))
-                    }
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="expense">Expense</option>
-                    <option value="income">Income</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={formData.amount}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        amount: e.target.value,
-                      }))
-                    }
-                    className="w-full p-2 border rounded-md"
-                    required
-                  />
-                </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Type</label>
+                <select
+                  value={formData.type}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, type: e.target.value }))
+                  }
+                  className="w-full p-2 border rounded-md"
+                >
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Description
-                </label>
+                <label className="block text-sm font-medium mb-1">Amount</label>
                 <input
-                  type="text"
-                  placeholder="What was this transaction for?"
-                  value={formData.description}
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={formData.amount}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
-                      description: e.target.value,
+                      amount: e.target.value,
                     }))
                   }
                   className="w-full p-2 border rounded-md"
                   required
                 />
               </div>
+            </div>
 
-              {showAiSuggestion && aiSuggestion && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-blue-800">
-                        🤖 AI Suggestion: {aiSuggestion.category}
-                      </p>
-                      <p className="text-xs text-blue-600">
-                        {aiSuggestion.reasoning} (Confidence:{" "}
-                        {Math.round(aiSuggestion.confidence * 100)}%)
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={acceptAiSuggestion}
-                      className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                    >
-                      Accept
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Description
+              </label>
+              <input
+                type="text"
+                placeholder="What was this transaction for?"
+                value={formData.description}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+                className="w-full p-2 border rounded-md"
+                required
+              />
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        category: e.target.value,
-                      }))
-                    }
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="">Select category</option>
-                    <option value="groceries">Groceries</option>
-                    <option value="dining">Dining Out</option>
-                    <option value="transportation">Transportation</option>
-                    <option value="utilities">Utilities</option>
-                    <option value="entertainment">Entertainment</option>
-                    <option value="healthcare">Healthcare</option>
-                    <option value="shopping">Shopping</option>
-                    <option value="travel">Travel</option>
-                    <option value="education">Education</option>
-                    <option value="housing">Housing</option>
-                    <option value="income">Income</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1">Date</label>
-                  <input
-                    type="date"
-                    value={formData.date}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, date: e.target.value }))
-                    }
-                    className="w-full p-2 border rounded-md"
-                    required
-                  />
-                </div>
-              </div>
-
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Merchant (Optional)
+                  Category
                 </label>
-                <input
-                  type="text"
-                  placeholder="Where did you make this transaction?"
-                  value={formData.merchant}
+                <select
+                  value={formData.category}
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
-                      merchant: e.target.value,
+                      category: e.target.value,
                     }))
                   }
                   className="w-full p-2 border rounded-md"
-                />
+                >
+                  <option value="">Select category</option>
+                  <option value="groceries">Groceries</option>
+                  <option value="dining">Dining Out</option>
+                  <option value="transportation">Transportation</option>
+                  <option value="utilities">Utilities</option>
+                  <option value="entertainment">Entertainment</option>
+                  <option value="other">Other</option>
+                </select>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-4 py-2 border rounded-md hover:bg-gray-50"
-                  disabled={loading}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading ? "Adding..." : "Add Transaction"}
-                </button>
+              <div>
+                <label className="block text-sm font-medium mb-1">Date</label>
+                <input
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, date: e.target.value }))
+                  }
+                  className="w-full p-2 border rounded-md"
+                  required
+                />
               </div>
-            </form>
-          )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Merchant (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="Where did you make this transaction?"
+                value={formData.merchant}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    merchant: e.target.value,
+                  }))
+                }
+                className="w-full p-2 border rounded-md"
+              />
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-4">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="px-4 py-2 border rounded-md hover:bg-gray-50"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? "Adding..." : "Add Transaction"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
@@ -553,10 +269,9 @@ function AddTransactionModal({
 export default function Dashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [aiInsights, setAiInsights] = useState<AiInsight[]>([]);
-  const [insightsLoading, setInsightsLoading] = useState(false);
   const [stats, setStats] = useState({
     totalIncome: 0,
     totalExpenses: 0,
@@ -564,55 +279,52 @@ export default function Dashboard() {
     transactionCount: 0,
   });
 
-  // Only redirect if we're sure there's no session (not loading)
+  // Authentication check with proper timing
   useEffect(() => {
-    if (status === "loading") return; // Still loading, don't redirect
+    console.log("🔍 Dashboard auth check:", {
+      status,
+      hasSession: !!session,
+      userEmail: session?.user?.email,
+    });
 
-    if (status === "unauthenticated") {
-      console.log("User not authenticated, redirecting to signin");
-      router.push("/auth/signin");
+    // Don't do anything while loading
+    if (status === "loading") {
+      console.log("⏳ Session still loading...");
+      return;
     }
-  }, [status, router]);
 
-  // Fetch transactions when user is authenticated
-  useEffect(() => {
-    if (status === "authenticated") {
+    // If definitely unauthenticated, redirect after a brief delay
+    if (status === "unauthenticated") {
+      console.log("❌ Not authenticated, redirecting...");
+      setIsRedirecting(true);
+
+      const timer = setTimeout(() => {
+        router.push("/auth/signin");
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+
+    // If authenticated, fetch data
+    if (status === "authenticated" && session?.user) {
+      console.log("✅ Authenticated as:", session.user.email);
       fetchTransactions();
     }
-  }, [status]);
+  }, [status, session, router]);
 
   const fetchTransactions = async () => {
     try {
+      setLoading(true);
       const response = await fetch("/api/transactions");
       if (response.ok) {
         const data = await response.json();
         setTransactions(data);
         calculateStats(data);
-
-        // Fetch AI insights if we have transactions
-        if (data.length > 0) {
-          fetchAiInsights();
-        }
       }
     } catch (error) {
       console.error("Failed to fetch transactions:", error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchAiInsights = async () => {
-    setInsightsLoading(true);
-    try {
-      const response = await fetch("/api/ai/insights?timeframe=month");
-      if (response.ok) {
-        const data = await response.json();
-        setAiInsights(data.insights || []);
-      }
-    } catch (error) {
-      console.error("Failed to fetch AI insights:", error);
-    } finally {
-      setInsightsLoading(false);
     }
   };
 
@@ -638,26 +350,75 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
-          <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-pulse" />
+          <Loader2 className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-spin" />
           <p className="text-lg text-gray-600">Loading your dashboard...</p>
+          <p className="text-sm text-gray-500 mt-2">
+            Checking authentication...
+          </p>
         </div>
       </div>
     );
   }
 
-  // Show nothing while redirecting (if unauthenticated)
-  if (status === "unauthenticated") {
+  // Show redirecting state
+  if (isRedirecting || status === "unauthenticated") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
+          <Loader2 className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-spin" />
           <p className="text-lg text-gray-600">Redirecting to sign in...</p>
+          <div className="mt-4 space-y-2">
+            <Button
+              onClick={() => router.push("/auth/signin")}
+              variant="outline"
+            >
+              Click here if not redirected
+            </Button>
+            <Button
+              onClick={() => (window.location.href = "/test-session")}
+              variant="ghost"
+              size="sm"
+            >
+              Debug Session
+            </Button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // User is authenticated, show dashboard
-  if (!session?.user) return null;
+  // Show error if authenticated but no user data
+  if (status === "authenticated" && !session?.user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Session Issue</h2>
+            <p className="text-gray-600 mb-4">
+              You're authenticated but user data is missing.
+            </p>
+            <div className="space-y-2">
+              <Button onClick={() => signOut({ callbackUrl: "/" })}>
+                Sign Out & Try Again
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => (window.location.href = "/test-session")}
+              >
+                Debug Session
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Main dashboard - only show if authenticated with user data
+  if (status !== "authenticated" || !session?.user) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -671,7 +432,9 @@ export default function Dashboard() {
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <User className="h-5 w-5 text-gray-600" />
-              <span className="text-sm text-gray-600">{session.user.name}</span>
+              <span className="text-sm text-gray-600">
+                {session.user.name || session.user.email}
+              </span>
             </div>
             <Button
               variant="outline"
@@ -681,6 +444,18 @@ export default function Dashboard() {
             >
               <BarChart3 className="h-4 w-4" />
               <span>Analytics</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchTransactions}
+              disabled={loading}
+              className="flex items-center space-x-1"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+              />
+              <span>Refresh</span>
             </Button>
             <Button
               variant="outline"
@@ -699,7 +474,7 @@ export default function Dashboard() {
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Welcome back, {session.user.name?.split(" ")[0]}! 👋
+            Welcome back, {session.user.name?.split(" ")[0] || "User"}! 👋
           </h1>
           <p className="text-xl text-gray-600">
             Your AI-powered finance dashboard is ready to help you take control
@@ -707,8 +482,21 @@ export default function Dashboard() {
           </p>
         </div>
 
+        {/* Success message for debugging */}
+        <Card className="mb-6 border-green-200 bg-green-50">
+          <CardContent className="pt-6">
+            <div className="flex items-center space-x-2 text-green-700">
+              <CheckCircle className="h-5 w-5" />
+              <span>
+                ✅ Authentication working! Signed in as: {session.user.email}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Dashboard Cards */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Total Balance Card */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
@@ -740,6 +528,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
+          {/* Recent Transactions Card */}
           <Card>
             <CardHeader>
               <CardTitle>Recent Transactions</CardTitle>
@@ -752,13 +541,15 @@ export default function Dashboard() {
             <CardContent>
               {loading ? (
                 <div className="text-center py-8">
+                  <Loader2 className="h-8 w-8 text-blue-600 mx-auto mb-2 animate-spin" />
                   <p className="text-gray-500">Loading transactions...</p>
                 </div>
               ) : transactions.length === 0 ? (
                 <div className="text-center py-8">
-                  <p className="text-gray-500">No transactions yet</p>
+                  <p className="text-gray-500 mb-4">No transactions yet</p>
                   <AddTransactionModal onTransactionAdded={fetchTransactions}>
-                    <Button className="mt-4" size="sm">
+                    <Button size="sm">
+                      <Plus className="h-4 w-4 mr-2" />
                       Add Transaction
                     </Button>
                   </AddTransactionModal>
@@ -798,18 +589,26 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
-                  {transactions.length > 3 && (
-                    <div className="text-center pt-2">
+
+                  <div className="flex justify-between items-center pt-2">
+                    {transactions.length > 3 && (
                       <Button variant="outline" size="sm">
                         View All Transactions
                       </Button>
-                    </div>
-                  )}
+                    )}
+                    <AddTransactionModal onTransactionAdded={fetchTransactions}>
+                      <Button size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Transaction
+                      </Button>
+                    </AddTransactionModal>
+                  </div>
                 </div>
               )}
             </CardContent>
           </Card>
 
+          {/* AI Insights Card */}
           <Card>
             <CardHeader>
               <CardTitle>🤖 AI Insights</CardTitle>
@@ -818,70 +617,22 @@ export default function Dashboard() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {insightsLoading ? (
-                <div className="text-center py-8">
-                  <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-pulse" />
-                  <p className="text-gray-500">
-                    AI is analyzing your finances...
-                  </p>
-                </div>
-              ) : aiInsights.length === 0 ? (
-                <div className="text-center py-8">
-                  <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4" />
-                  <p className="text-gray-500">
-                    Add more transactions to see AI insights
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {aiInsights.slice(0, 2).map((insight, index) => (
-                    <div
-                      key={index}
-                      className="p-3 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border"
-                    >
-                      <h4 className="font-medium text-sm text-gray-900 mb-1">
-                        {insight.title}
-                      </h4>
-                      <p className="text-xs text-gray-600 mb-2">
-                        {insight.content}
-                      </p>
-                      {insight.recommendations &&
-                        insight.recommendations.length > 0 && (
-                          <div className="space-y-1">
-                            {insight.recommendations
-                              .slice(0, 2)
-                              .map((rec: string, i: number) => (
-                                <p
-                                  key={i}
-                                  className="text-xs text-blue-700 flex items-center"
-                                >
-                                  <span className="w-1 h-1 bg-blue-400 rounded-full mr-2"></span>
-                                  {rec}
-                                </p>
-                              ))}
-                          </div>
-                        )}
-                    </div>
-                  ))}
-                  {aiInsights.length > 2 && (
-                    <div className="text-center pt-2">
-                      <Button variant="outline" size="sm">
-                        View All Insights
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="text-center py-8">
+                <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4" />
+                <p className="text-gray-500">
+                  Add more transactions to see AI insights
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Getting Started */}
+        {/* Getting Started Section */}
         <Card className="mt-8">
           <CardHeader>
             <CardTitle>🚀 Getting Started</CardTitle>
             <CardDescription>
-              Lets set up your financial dashboard
+              Let's set up your financial dashboard
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -892,7 +643,7 @@ export default function Dashboard() {
                   Add Your First Transaction
                 </h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Start by adding a transaction or uploading a receipt
+                  Start by adding a transaction to track your finances
                 </p>
                 <AddTransactionModal onTransactionAdded={fetchTransactions}>
                   <Button size="sm">Add Transaction</Button>
@@ -900,22 +651,26 @@ export default function Dashboard() {
               </div>
               <div className="text-center p-4">
                 <div className="text-2xl mb-2">2️⃣</div>
-                <h3 className="font-semibold mb-2">Set Up Categories</h3>
+                <h3 className="font-semibold mb-2">View Analytics</h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Organize your expenses with custom categories
+                  Explore detailed insights and trends
                 </p>
-                <Button size="sm" variant="outline">
-                  Set Categories
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => router.push("/analytics")}
+                >
+                  View Analytics
                 </Button>
               </div>
               <div className="text-center p-4">
                 <div className="text-2xl mb-2">3️⃣</div>
-                <h3 className="font-semibold mb-2">Create Budgets</h3>
+                <h3 className="font-semibold mb-2">Set Budgets</h3>
                 <p className="text-sm text-gray-600 mb-4">
-                  Set spending limits and track your goals
+                  Create budgets to track your spending goals
                 </p>
                 <Button size="sm" variant="outline">
-                  Create Budget
+                  Coming Soon
                 </Button>
               </div>
             </div>
