@@ -61,24 +61,26 @@ export default function SignIn() {
     setError(null);
 
     try {
-      console.log("🔄 Starting sign in process...");
+      // Always use the current URL's origin for the callback
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : "";
+      const callbackUrl = `${origin}/dashboard`;
 
-      const result = await signIn(providerId, {
-        callbackUrl: "/dashboard",
-        redirect: false, // Handle manually to catch errors
+      console.log("Starting sign in with:", {
+        providerId,
+        callbackUrl,
+        origin,
       });
 
-      console.log("🔄 Sign in result:", result);
+      const result = await signIn(providerId, {
+        callbackUrl,
+        redirect: true, // Let NextAuth handle the redirect
+      });
 
+      // This code will only run if redirect: false
       if (result?.error) {
         setError(`Sign in failed: ${result.error}`);
         setLoading(false);
-      } else if (result?.url) {
-        console.log("✅ Redirecting to:", result.url);
-        window.location.href = result.url;
-      } else {
-        // Force page refresh to clear any cached state
-        window.location.href = "/dashboard";
       }
     } catch (error) {
       console.error("❌ Sign in error:", error);
