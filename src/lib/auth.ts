@@ -1,77 +1,40 @@
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import { prisma } from "@/lib/db";
 
+// TEMPORARY: Use JWT instead of database to isolate the issue
 export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          prompt: "select_account",
-          access_type: "offline",
-          response_type: "code",
-        },
-      },
     }),
   ],
   pages: {
     signIn: "/auth/signin",
-    error: "/auth/signin",
   },
   callbacks: {
-    async session({ session, user }) {
-      if (session.user && user) {
-        session.user.id = user.id;
+    async session({ session, token }) {
+      if (session?.user && token?.sub) {
+        session.user.id = token.sub;
       }
       return session;
     },
+    async jwt({ token, user, account }) {
+      if (user) {
+        token.id = user.id;
+      }
+      return token;
+    },
     async redirect({ url, baseUrl }) {
-      // Ensure baseUrl is always the production URL in production
-      const productionUrl = process.env.NEXTAUTH_URL;
-      const finalBaseUrl = productionUrl || baseUrl;
-
-      // Log the redirect attempt for debugging
-      console.log("NextAuth Redirect:", {
-        url,
-        baseUrl,
-        finalBaseUrl,
-        productionUrl,
-      });
+      console.log("🔄 Auth redirect:", { url, baseUrl });
 
       // Always redirect to dashboard after successful auth
-      if (url.includes("/api/auth/callback")) {
-        return `${finalBaseUrl}/dashboard`;
-      }
-
-      // For relative URLs, make them absolute
-      if (url.startsWith("/")) {
-        return `${finalBaseUrl}${url}`;
-      }
-
-      // For absolute URLs, ensure they're on our domain
-      try {
-        const urlObj = new URL(url);
-        const baseUrlObj = new URL(finalBaseUrl);
-
-        if (urlObj.host === baseUrlObj.host) {
-          return url;
-        }
-      } catch (e) {
-        console.error("URL parsing error:", e);
-      }
-
-      // Default fallback
-      return `${finalBaseUrl}/dashboard`;
+      return `${baseUrl}/dashboard`;
     },
   },
   session: {
-    strategy: "database",
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    strategy: "jwt", // Use JWT instead of database for now
   },
   secret: process.env.NEXTAUTH_SECRET,
-  debug: true, // Enable debug logs temporarily
+  debug: false, // Disable debug to reduce noise
 };
