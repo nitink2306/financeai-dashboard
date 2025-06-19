@@ -1,8 +1,8 @@
 "use client";
 
 import { signIn, getProviders } from "next-auth/react";
-import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,32 +11,86 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Brain } from "lucide-react";
+import { Brain, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
-function SignInContent() {
+export default function SignIn() {
   const [providers, setProviders] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const router = useRouter();
+
+  // Fix the callback URL to use current origin
+  const callbackUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/dashboard`
+      : "/dashboard";
+
+  const errorParam = searchParams.get("error");
 
   useEffect(() => {
     const setupProviders = async () => {
-      const res = await getProviders();
-      setProviders(res);
+      try {
+        const res = await getProviders();
+        setProviders(res);
+      } catch (err) {
+        setError("Failed to load sign-in providers");
+      }
     };
     setupProviders();
   }, []);
 
+  useEffect(() => {
+    if (errorParam) {
+      switch (errorParam) {
+        case "Callback":
+          setError(
+            "There was a problem with the authentication callback. Please try again."
+          );
+          break;
+        case "Configuration":
+          setError("There is a problem with the server configuration.");
+          break;
+        case "AccessDenied":
+          setError("Access denied. Please try again.");
+          break;
+        case "Verification":
+          setError(
+            "The verification token has expired or has already been used."
+          );
+          break;
+        default:
+          setError("An error occurred during sign in. Please try again.");
+      }
+    }
+  }, [errorParam]);
+
   const handleSignIn = async (providerId: string) => {
     setLoading(true);
+    setError(null);
+
     try {
-      await signIn(providerId, {
+      console.log("Signing in with callback URL:", callbackUrl);
+
+      const result = await signIn(providerId, {
         callbackUrl: callbackUrl,
-        redirect: true,
+        redirect: false, // Handle redirect manually
       });
+
+      if (result?.error) {
+        setError(`Sign in failed: ${result.error}`);
+        setLoading(false);
+      } else if (result?.url) {
+        // Redirect to the returned URL
+        window.location.href = result.url;
+      } else {
+        // Fallback redirect
+        router.push(callbackUrl);
+      }
     } catch (error) {
       console.error("Sign in error:", error);
+      setError("An unexpected error occurred. Please try again.");
       setLoading(false);
     }
   };
@@ -55,6 +109,13 @@ function SignInContent() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded p-3 flex items-center space-x-2">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+
           {providers &&
             Object.values(providers).map((provider: any) => (
               <Button
@@ -97,22 +158,5 @@ function SignInContent() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-export default function SignIn() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-          <div className="text-center">
-            <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-pulse" />
-            <p className="text-lg text-gray-600">Loading...</p>
-          </div>
-        </div>
-      }
-    >
-      <SignInContent />
-    </Suspense>
   );
 }
