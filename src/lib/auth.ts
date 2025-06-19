@@ -13,6 +13,7 @@ export const authOptions: NextAuthOptions = {
   ],
   pages: {
     signIn: "/auth/signin",
+    error: "/auth/signin",
   },
   callbacks: {
     async session({ session, user }) {
@@ -23,38 +24,41 @@ export const authOptions: NextAuthOptions = {
     },
     async redirect({ url, baseUrl }) {
       // Get the production URL from environment variables
-      const productionUrl =
-        process.env.NEXTAUTH_URL || `https://${process.env.VERCEL_URL}`;
+      const productionUrl = process.env.NEXTAUTH_URL;
 
-      // Determine if we're in production
-      const isProduction =
-        !!process.env.VERCEL_URL || !!process.env.NEXTAUTH_URL;
+      // Always use NEXTAUTH_URL in production, fallback to baseUrl in development
+      const finalBaseUrl = productionUrl || baseUrl;
 
-      // Use production URL if available, otherwise fall back to baseUrl
-      const finalBaseUrl = isProduction ? productionUrl : baseUrl;
+      // Security: Only allow redirects to trusted domains
+      const trustedHosts = [
+        new URL(finalBaseUrl).host,
+        process.env.VERCEL_URL,
+        "financeai-dashboard.vercel.app",
+      ].filter(Boolean);
 
-      // Ensure URL is absolute
-      const absoluteUrl = url.startsWith("http")
-        ? url
-        : `${finalBaseUrl}${url.startsWith("/") ? url : `/${url}`}`;
+      try {
+        const urlHost = new URL(
+          url.startsWith("http") ? url : `${finalBaseUrl}${url}`
+        ).host;
+        if (!trustedHosts.includes(urlHost)) {
+          return `${finalBaseUrl}/dashboard`;
+        }
+      } catch {
+        return `${finalBaseUrl}/dashboard`;
+      }
 
-      // For callback URLs, always redirect to dashboard
+      // Handle callback URLs
       if (url.includes("/api/auth/callback")) {
         return `${finalBaseUrl}/dashboard`;
       }
 
-      // If URL is relative to base URL, make it absolute
+      // If the url is relative, make it absolute
       if (url.startsWith("/")) {
         return `${finalBaseUrl}${url}`;
       }
 
-      // If URL is already absolute and matches our domain, use it
-      if (absoluteUrl.startsWith(finalBaseUrl)) {
-        return absoluteUrl;
-      }
-
-      // Default fallback to dashboard
-      return `${finalBaseUrl}/dashboard`;
+      // If url is already absolute and trusted, use it
+      return url.startsWith(finalBaseUrl) ? url : `${finalBaseUrl}/dashboard`;
     },
   },
   session: {
