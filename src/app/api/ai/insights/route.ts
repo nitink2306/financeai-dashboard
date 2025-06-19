@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
           priority: insight.priority,
           data: insight.recommendations
             ? { recommendations: insight.recommendations }
-            : null,
+            : undefined,
         },
       });
     }

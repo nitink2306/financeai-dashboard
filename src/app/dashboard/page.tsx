@@ -22,18 +22,34 @@ import {
   BarChart3,
 } from "lucide-react";
 
+type ReceiptData = {
+  merchant?: string;
+  amount?: number;
+  date?: string;
+  confidence?: number;
+};
+
+type AiInsight = {
+  title: string;
+  content: string;
+  recommendations?: string[];
+};
+
 // Import the receipt scanner component
 const ReceiptScanner = ({
   onDataExtracted,
   onCancel,
 }: {
-  onDataExtracted: (data: any) => void;
+  onDataExtracted: (data: ReceiptData) => void;
   onCancel: () => void;
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [processing, setProcessing] = useState(false);
-  const [ocrResult, setOcrResult] = useState<any>(null);
-  const [dragActive, setDragActive] = useState(false);
+  const [ocrResult, setOcrResult] = useState<{
+    success: boolean;
+    data: ReceiptData;
+  } | null>(null);
+  // const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileSelect = (file: File) => {
@@ -124,7 +140,7 @@ const ReceiptScanner = ({
                 </p>
                 <p>
                   <strong>Confidence:</strong>{" "}
-                  {Math.round(ocrResult.data.confidence * 100)}%
+                  {Math.round((ocrResult.data.confidence || 0) * 100)}%
                 </p>
               </div>
               <button
@@ -193,7 +209,11 @@ function AddTransactionModal({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"manual" | "receipt">("manual");
-  const [aiSuggestion, setAiSuggestion] = useState<any>(null);
+  const [aiSuggestion, setAiSuggestion] = useState<{
+    category: string;
+    reasoning: string;
+    confidence: number;
+  } | null>(null);
   const [showAiSuggestion, setShowAiSuggestion] = useState(false);
   const [formData, setFormData] = useState({
     description: "",
@@ -250,7 +270,7 @@ function AddTransactionModal({
   };
 
   // Handle OCR data extraction
-  const handleReceiptData = (receiptData: any) => {
+  const handleReceiptData = (receiptData: ReceiptData) => {
     console.log("📄 Receipt data received:", receiptData);
 
     // Populate form with OCR data
@@ -535,7 +555,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
-  const [aiInsights, setAiInsights] = useState<any[]>([]);
+  const [aiInsights, setAiInsights] = useState<AiInsight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [stats, setStats] = useState({
     totalIncome: 0,
@@ -861,7 +881,7 @@ export default function Dashboard() {
           <CardHeader>
             <CardTitle>🚀 Getting Started</CardTitle>
             <CardDescription>
-              Let's set up your financial dashboard
+              Lets set up your financial dashboard
             </CardDescription>
           </CardHeader>
           <CardContent>

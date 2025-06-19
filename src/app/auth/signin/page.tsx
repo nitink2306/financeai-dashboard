@@ -1,7 +1,7 @@
 "use client";
 
 import { signIn, getProviders } from "next-auth/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,7 @@ import {
 import { Brain } from "lucide-react";
 import Link from "next/link";
 
-export default function SignIn() {
+function SignInContent() {
   const [providers, setProviders] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const searchParams = useSearchParams();
@@ -97,5 +97,22 @@ export default function SignIn() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function SignIn() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+          <div className="text-center">
+            <Brain className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-pulse" />
+            <p className="text-lg text-gray-600">Loading...</p>
+          </div>
+        </div>
+      }
+    >
+      <SignInContent />
+    </Suspense>
   );
 }
